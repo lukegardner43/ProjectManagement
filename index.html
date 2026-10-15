@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Perega Projects</title>
+<meta name="description" content="Perega practice management: pipeline, projects, timesheets, resourcing, invoicing and reports.">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="stylesheet" href="css/app.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#view">Skip to content</a>
+<div class="app">
+  <aside class="sidebar" aria-label="Main">
+    <a class="brand" href="#/dashboard" aria-label="Perega Projects home">
+      <img src="assets/perega-logo.png" alt="Perega" width="150" height="25">
+      <span class="brand-product">Projects</span>
+    </a>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot">
+      <label for="user-select" class="user-label">Signed in as</label>
+      <select id="user-select" class="user-select"></select>
+      <div id="user-role" class="user-role"></div>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+  <div class="main">
+    <header class="topbar">
+      <button type="button" class="icon-btn menu-toggle" id="menu-toggle" aria-label="Menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="search-wrap">
+        <input id="search" type="search" placeholder="Search jobs, clients, opportunities…  ( / )" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-controls="search-results" aria-label="Search">
+        <ul id="search-results" class="search-results" role="listbox" hidden></ul>
+      </div>
+    </header>
+    <div id="banner" class="banner" role="status" hidden></div>
+    <main id="view" class="view" tabindex="-1"></main>
+  </div>
+</div>
+<div id="modal-root"></div>
+<div id="toast-root" aria-live="polite"></div>
+<div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+<noscript><p style="padding:24px">Perega Projects needs JavaScript turned on.</p></noscript>
+</body>
+</html>

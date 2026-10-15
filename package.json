@@ -1,0 +1,10 @@
+{
+  "name": "perega-projects",
+  "private": true,
+  "description": "Perega practice management: pipeline, projects, timesheets, resourcing, invoicing and reports.",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test tests/*.test.js"
+  }
+}
