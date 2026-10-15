@@ -4,6 +4,8 @@ import * as C from '../calc.js';
 import { pageHead, table, tabs, pill, toast, formModal, empty } from '../ui.js';
 import { approveWeek, rejectWeek } from './timesheets.js';
 import { invoiceView, approveInvoice } from './invoices.js';
+import { costEstimate } from '../estimate.js';
+import { setStatus as setPoStatus } from './purchasing.js';
 
 export function render(root, { params: [tab = 'timesheets'] }) {
   const s = getState();
@@ -18,6 +20,8 @@ export function render(root, { params: [tab = 'timesheets'] }) {
   const exps = s.expenses.filter((x) => x.status === 'Submitted');
   const leave = s.leave.filter((l) => l.status === 'Requested');
   const drafts = s.invoices.filter((i) => i.status === 'Draft');
+  const ests = s.estimates.filter((e) => e.status === 'Submitted');
+  const pos = s.purchaseOrders.filter((p) => p.status === 'Draft' && p.amount > (s.settings.poApprovalLimit ?? 0));
   const missing = activeStaff().filter((p) => !['Submitted', 'Approved'].includes(C.weekStatus(s, p.id, lastWeek)));
 
   const weekHours = (w) => {
@@ -80,6 +84,26 @@ export function render(root, { params: [tab = 'timesheets'] }) {
         { key: 'act', label: '', sortable: false, render: (i) => html`<span class="page-actions"><button type="button" class="btn small" data-view-inv="${i.id}">View</button><button type="button" class="btn small primary" data-approve-inv="${i.id}">Approve</button></span>` },
       ],
     })}</div></section>`,
+    estimates: () => html`<section class="card"><div class="card-head"><h2>Fee estimates</h2></div><div class="card-body">${table({
+      id: 'ap-est', rows: ests, empty: 'No fee estimates waiting.',
+      columns: [
+        { key: 'name', label: 'Estimate', render: (e) => html`<a class="cell-main" href="#/estimates/${e.id}">${e.name}</a><span class="cell-sub">by ${staffName(e.createdBy)}</span>` },
+        { key: 'fee', label: 'Fee', align: 'num', value: (e) => costEstimate(s, e).fee, render: (e) => money(costEstimate(s, e).fee) },
+        { key: 'margin', label: 'Margin', align: 'num', render: (e) => { const c = costEstimate(s, e); return html`<span class="${c.belowTarget ? 'neg' : ''}">${Math.round((c.margin ?? 0) * 100)}%</span> <span class="muted">target ${Math.round(e.targetMargin * 100)}%</span>`; } },
+        { key: 'act', label: '', sortable: false, render: (e) => html`<span class="page-actions"><a class="btn small" href="#/estimates/${e.id}">Review</a><button type="button" class="btn small primary" data-approve-est="${e.id}">Approve</button></span>` },
+      ],
+    })}</div></section>`,
+    purchasing: () => html`<section class="card"><div class="card-head"><h2>Purchase orders over ${money(s.settings.poApprovalLimit)}</h2></div><div class="card-body">${table({
+      id: 'ap-po', rows: pos, empty: 'No purchase orders waiting.',
+      columns: [
+        { key: 'number', label: 'Order' },
+        { key: 'job', label: 'Job', value: (x) => find('projects', x.projectId)?.jobNo, render: (x) => html`<span class="job">${find('projects', x.projectId)?.jobNo}</span>` },
+        { key: 'supplier', label: 'Supplier', render: (x) => html`${x.supplier}<span class="cell-sub">${x.description}</span>` },
+        { key: 'by', label: 'Raised by', value: (x) => staffName(x.raisedBy) },
+        { key: 'amount', label: 'Amount', align: 'num', render: (x) => money2(x.amount) },
+        { key: 'act', label: '', sortable: false, render: (x) => html`<span class="page-actions"><button type="button" class="btn small" data-reject-po="${x.id}">Cancel</button><button type="button" class="btn small primary" data-approve-po="${x.id}">Approve</button></span>` },
+      ],
+    })}</div></section>`,
   };
 
   root.innerHTML = String(html`
@@ -89,6 +113,8 @@ export function render(root, { params: [tab = 'timesheets'] }) {
       { key: 'expenses', label: 'Expenses', href: '#/approvals/expenses', count: exps.length },
       { key: 'leave', label: 'Leave', href: '#/approvals/leave', count: leave.length },
       { key: 'invoices', label: 'Invoices', href: '#/approvals/invoices', count: drafts.length },
+      { key: 'estimates', label: 'Fee estimates', href: '#/approvals/estimates', count: ests.length },
+      { key: 'purchasing', label: 'Purchase orders', href: '#/approvals/purchasing', count: pos.length },
     ], tab)}
     <div class="stack">${(bodies[tab] || bodies.timesheets)()}</div>`);
 
@@ -106,6 +132,9 @@ export function render(root, { params: [tab = 'timesheets'] }) {
   on('[data-decline]', (b) => setLeave(b.dataset.decline, 'Rejected'));
   on('[data-view-inv]', (b) => invoiceView(find('invoices', b.dataset.viewInv)));
   on('[data-approve-inv]', (b) => approveInvoice(find('invoices', b.dataset.approveInv)));
+  on('[data-approve-est]', (b) => { update((st) => { const e = st.estimates.find((x) => x.id === b.dataset.approveEst); e.status = 'Approved'; e.approvedBy = currentUser().id; }); toast('Estimate approved.'); });
+  on('[data-approve-po]', (b) => setPoStatus(s.purchaseOrders.find((x) => x.id === b.dataset.approvePo), 'Approved'));
+  on('[data-reject-po]', (b) => setPoStatus(s.purchaseOrders.find((x) => x.id === b.dataset.rejectPo), 'Cancelled'));
 }
 
 function setExpense(id, status, comment = '') {

@@ -16,6 +16,14 @@ import * as expenses from './views/expenses.js';
 import * as leave from './views/leave.js';
 import * as reports from './views/reports.js';
 import * as settings from './views/settings.js';
+import * as estimates from './views/estimates.js';
+import * as mywork from './views/mywork.js';
+import * as activities from './views/activities.js';
+import * as people from './views/people.js';
+import * as billing from './views/billing.js';
+import * as purchasing from './views/purchasing.js';
+import * as portfolios from './views/portfolios.js';
+import * as reportbuilder from './views/reportbuilder.js';
 
 const ICONS = {
   home: 'M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z',
@@ -29,15 +37,24 @@ const ICONS = {
   invoice: 'M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5',
   check: 'M4 12.5 9 17.5 20 6.5',
   chart: 'M4 20V10M10 20V4M16 20v-7M3 20h18',
+  tasks: 'M4 6h2M4 12h2M4 18h2M9 6h11M9 12h11M9 18h11',
+  phone: 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',
+  calc: 'M6 3h12v18H6zM9 7h6M9 11h2M13 11h2M9 15h2M13 15h2',
+  layers: 'M12 3 3 8l9 5 9-5zM3 13l9 5 9-5',
+  users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6',
+  pound: 'M16 6a4 4 0 0 0-7 2.5V12m0 0v3a3 3 0 0 1-2 3h11M6 12h8',
+  cart: 'M3 4h2l2.5 11h11L21 8H7M10 20h.01M17 20h.01',
   cog: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM19.4 13a7.5 7.5 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.5 7.5 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 1.7-1l2.4 1 2-3.4z',
 };
 const icon = (name) => raw(`<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`);
 
 const NAV = [
-  { group: '', items: [['/dashboard', 'Dashboard', 'home']] },
-  { group: 'Sales', items: [['/pipeline', 'Pipeline', 'funnel'], ['/clients', 'Clients', 'building']] },
-  { group: 'Delivery', items: [['/projects', 'Projects', 'folder'], ['/resourcing', 'Resourcing', 'grid']] },
-  { group: 'Time & money', items: [['/timesheets', 'Timesheets', 'clock'], ['/expenses', 'Expenses', 'receipt'], ['/leave', 'Leave', 'sun'], ['/invoices', 'Invoices', 'invoice']] },
+  { group: '', items: [['/dashboard', 'Dashboard', 'home'], ['/my-work', 'My work', 'tasks']] },
+  { group: 'CRM', items: [['/pipeline', 'Pipeline', 'funnel'], ['/clients', 'Clients', 'building'], ['/activities', 'Activities', 'phone']] },
+  { group: 'Projects', items: [['/projects', 'Projects', 'folder'], ['/estimates', 'Fee estimates', 'calc'], ['/portfolios', 'Portfolios', 'layers']] },
+  { group: 'People', items: [['/people', 'People', 'users'], ['/resourcing', 'Resourcing', 'grid'], ['/leave', 'Leave', 'sun']] },
+  { group: 'Time & expenses', items: [['/timesheets', 'Timesheets', 'clock'], ['/expenses', 'Expenses', 'receipt']] },
+  { group: 'Finance', items: [['/invoices', 'Invoices', 'invoice'], ['/billing', 'Billing', 'pound'], ['/purchase-orders', 'Purchase orders', 'cart']] },
   { group: 'Manage', items: [['/approvals', 'Approvals', 'check'], ['/reports', 'Reports', 'chart'], ['/settings', 'Settings', 'cog']] },
 ];
 
@@ -55,7 +72,16 @@ const ROUTES = [
   [/^\/expenses$/, expenses.render],
   [/^\/leave$/, leave.render],
   [/^\/reports$/, reports.index],
+  [/^\/reports\/custom\/([\w-]+)$/, reportbuilder.render],
   [/^\/reports\/([\w-]+)$/, reports.report],
+  [/^\/my-work$/, mywork.render],
+  [/^\/activities$/, activities.render],
+  [/^\/estimates$/, estimates.list],
+  [/^\/estimates\/([\w-]+)$/, estimates.detail],
+  [/^\/portfolios$/, portfolios.render],
+  [/^\/people(?:\/(\w+))?$/, people.render],
+  [/^\/billing$/, billing.render],
+  [/^\/purchase-orders$/, purchasing.render],
   [/^\/settings(?:\/(\w+))?$/, settings.render],
 ];
 

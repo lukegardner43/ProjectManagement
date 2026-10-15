@@ -3,9 +3,80 @@
 // Every person, client and project here is invented. Replace it from
 // Settings → Data (start with an empty system, or import your own JSON).
 
-import { addDays, addMonths, isWeekday, monthKey, monthEnd, monthLabel, todayISO, weekStart, workingDays, dayOfWeek, round2 } from './util.js';
+import { addDays, addMonths, isWeekday, monthKey, monthEnd, monthLabel, todayISO, weekStart, workingDays, dayOfWeek, round2, sum } from './util.js';
+import { costEstimate, templateStages } from './estimate.js';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+// Charge rates by grade. Estimates price hours with a rate card; each
+// person's own charge and cost rates still value their timesheets.
+export const DEFAULT_RATE_CARD = {
+  id: 'rc_std', name: 'Standard rates',
+  rates: { Director: 145, Associate: 120, 'Principal Engineer': 105, 'Senior Engineer': 92, Engineer: 76, 'Graduate Engineer': 60, 'CAD Technician': 64 },
+};
+
+// Stage splits for common commissions. pct is the share of the fee; mix is
+// the share of hours by grade; weeks is the planned duration.
+export const DEFAULT_FEE_TEMPLATES = [
+  {
+    id: 'tpl_riba', name: 'Structural engineering, RIBA stages 2–6', sector: 'Any', targetMargin: 0.35,
+    stages: [
+      { name: 'RIBA 2 Concept design', pct: 15, weeks: 6, mix: { Director: 0.05, Associate: 0.15, 'Senior Engineer': 0.3, Engineer: 0.3, 'CAD Technician': 0.2 } },
+      { name: 'RIBA 3 Spatial coordination', pct: 20, weeks: 8, mix: { Associate: 0.1, 'Senior Engineer': 0.3, Engineer: 0.3, 'Graduate Engineer': 0.1, 'CAD Technician': 0.2 } },
+      { name: 'RIBA 4 Technical design', pct: 40, weeks: 12, mix: { Associate: 0.05, 'Senior Engineer': 0.25, Engineer: 0.3, 'Graduate Engineer': 0.15, 'CAD Technician': 0.25 } },
+      { name: 'RIBA 5 Manufacturing and construction', pct: 20, weeks: 40, mix: { Associate: 0.1, 'Senior Engineer': 0.4, Engineer: 0.4, 'CAD Technician': 0.1 } },
+      { name: 'RIBA 6 Handover', pct: 5, weeks: 4, mix: { 'Senior Engineer': 0.5, Engineer: 0.5 } },
+    ],
+  },
+  {
+    id: 'tpl_drain', name: 'Drainage strategy and design', sector: 'Residential', targetMargin: 0.35,
+    stages: [
+      { name: 'Desk study and drainage strategy', pct: 30, weeks: 4, mix: { Associate: 0.1, 'Senior Engineer': 0.2, Engineer: 0.5, 'Graduate Engineer': 0.2 } },
+      { name: 'Detailed drainage design', pct: 50, weeks: 8, mix: { 'Senior Engineer': 0.2, Engineer: 0.45, 'Graduate Engineer': 0.15, 'CAD Technician': 0.2 } },
+      { name: 'Adoption and approvals', pct: 20, weeks: 10, mix: { Associate: 0.1, 'Senior Engineer': 0.3, Engineer: 0.6 } },
+    ],
+  },
+  {
+    id: 'tpl_survey', name: 'Structural survey and report', sector: 'Any', targetMargin: 0.4,
+    stages: [
+      { name: 'Site survey', pct: 40, weeks: 2, mix: { 'Senior Engineer': 0.4, Engineer: 0.4, 'Graduate Engineer': 0.2 } },
+      { name: 'Report and recommendations', pct: 50, weeks: 3, mix: { Director: 0.1, 'Senior Engineer': 0.4, Engineer: 0.5 } },
+      { name: 'Client review', pct: 10, weeks: 2, mix: { Associate: 0.5, 'Senior Engineer': 0.5 } },
+    ],
+  },
+  {
+    id: 'tpl_bridge', name: 'Highway structure assessment', sector: 'Infrastructure', targetMargin: 0.35,
+    stages: [
+      { name: 'Principal inspection', pct: 25, weeks: 4, mix: { 'Senior Engineer': 0.4, Engineer: 0.4, 'Graduate Engineer': 0.2 } },
+      { name: 'Structural assessment', pct: 55, weeks: 10, mix: { Associate: 0.15, 'Senior Engineer': 0.35, Engineer: 0.5 } },
+      { name: 'Report and approval in principle', pct: 20, weeks: 4, mix: { Associate: 0.3, 'Senior Engineer': 0.4, Engineer: 0.3 } },
+    ],
+  },
+];
+
+export const DEFAULT_SKILLS = [
+  'Steel design', 'Concrete design', 'Timber design', 'Masonry', 'Foundations and geotechnics', 'Retaining walls', 'Basements',
+  'Drainage design', 'SuDS', 'Highways and S278', 'Bridge assessment', 'Temporary works', 'Surveys and retrofit',
+  'Site supervision', 'Revit', 'Tekla', 'AutoCAD', 'Client management',
+];
+
+// Collections and settings added after the first release. store.validate()
+// fills these in on older saved data.
+export function v2Defaults() {
+  return {
+    rateCards: [structuredClone(DEFAULT_RATE_CARD)],
+    feeTemplates: structuredClone(DEFAULT_FEE_TEMPLATES),
+    estimates: [],
+    tasks: [],
+    activities: [],
+    purchaseOrders: [],
+    savedReports: [],
+    settingsDefaults: {
+      skills: [...DEFAULT_SKILLS], utilisationTarget: 0.8, poApprovalLimit: 1000, nextPoNo: 1,
+      targets: { won: 0, invoiced: 0 },
+    },
+  };
+}
 
 function mulberry32(a) {
   return function () {
@@ -31,11 +102,12 @@ export function emptyState(today = todayISO()) {
       currentUserId: 'stf_admin',
       demo: false,
       createdAt: today,
+      ...v2Defaults().settingsDefaults,
     },
     offices: [{ id: 'off_main', name: 'Head office' }],
     staff: [{
       id: 'stf_admin', name: 'Administrator', grade: 'Director', discipline: 'Structural', officeId: 'off_main',
-      chargeRate: 120, costRate: 55, weeklyHours: 37.5, isManager: true, billable: true, leaveAllowance: 25, active: true,
+      chargeRate: 120, costRate: 55, weeklyHours: 37.5, isManager: true, billable: true, leaveAllowance: 25, active: true, skills: [],
     }],
     clients: [],
     opportunities: [],
@@ -46,6 +118,7 @@ export function emptyState(today = todayISO()) {
     invoices: [],
     expenses: [],
     leave: [],
+    ...(({ settingsDefaults, ...rest }) => rest)(v2Defaults()),
   };
 }
 
@@ -188,6 +261,12 @@ export function seed(today = todayISO()) {
   ];
 
   const clientOf = new Map(clients.map((c) => [c.id, c]));
+  const GRADE_WEIGHT = { Director: 0.05, Associate: 0.12, 'Principal Engineer': 0.18, 'Senior Engineer': 0.25, Engineer: 0.3, 'Graduate Engineer': 0.22, 'CAD Technician': 0.2 };
+  const gradeSplit = (team, hours) => {
+    const grades = [...new Set(team.map((id) => person.get(id).grade))].filter((g) => GRADE_WEIGHT[g]);
+    const w = sum(grades, (g) => GRADE_WEIGHT[g]);
+    return Object.fromEntries(grades.map((g) => [g, half((hours * GRADE_WEIGHT[g]) / w)]));
+  };
   const plans = [];
   const projects = defs.map(([jobNo, name, clientId, officeId, sector, status, managerId, ownerId, team, stageDefs]) => {
     const id = `prj_${jobNo.toLowerCase()}`;
@@ -199,6 +278,9 @@ export function seed(today = todayISO()) {
       address: clientOf.get(clientId).address, purchaseOrder: rnd() < 0.5 ? `PO-${ri(40000, 99999)}` : '',
       description: '', internal: false, invoiceSchedule: [], stages: [],
     };
+    // Planned stage dates: past windows as they ran; a stage still under way
+    // is projected from its progress so far; future stages follow on.
+    let cursor = null;
     p.stages = stageDefs.map(([sName, feeType, fee, amount, win, overrun], i) => {
       const budgetHours = Math.round(fee / 85 / 5) * 5;
       const st = {
@@ -210,7 +292,15 @@ export function seed(today = todayISO()) {
         const start = weekday(ago(win[0]));
         const end = win[1] === 0 ? ago(1) : ago(win[1]);
         plans.push({ p, st, start, end, daily: target / Math.max(1, workingDays(start, end)), owed: 0, remaining: target });
+        const days = win[1] > 0 ? win[0] - win[1] : feeType === 'T&M' ? win[0] + 56 : amount > 0 ? Math.round(win[0] / (amount / 100)) : win[0] + 84;
+        st.startDate = start;
+        st.weeks = Math.max(1, Math.round(days / 7));
+      } else {
+        st.startDate = weekday(cursor ? addDays(cursor, 1) : addDays(today, 14));
+        st.weeks = feeType === 'T&M' ? 26 : 12;
       }
+      cursor = addDays(st.startDate, st.weeks * 7 - 1);
+      st.hoursByGrade = gradeSplit(team, budgetHours);
       return st;
     });
     return p;
@@ -469,12 +559,139 @@ export function seed(today = todayISO()) {
     }
   }
 
+  // ── Skills (level 1 working knowledge, 2 competent, 3 expert) ────────────
+  const SKILLS = {
+    stf_ag: [['Steel design', 3], ['Concrete design', 3], ['Basements', 3], ['Client management', 3], ['Temporary works', 2]],
+    stf_hm: [['Concrete design', 3], ['Steel design', 2], ['Masonry', 3], ['Surveys and retrofit', 3], ['Client management', 3]],
+    stf_rk: [['Highways and S278', 3], ['Drainage design', 2], ['Basements', 3], ['Foundations and geotechnics', 3], ['Client management', 2]],
+    stf_ec: [['Concrete design', 3], ['Timber design', 2], ['Surveys and retrofit', 2], ['Revit', 2]],
+    stf_tb: [['Bridge assessment', 3], ['Highways and S278', 2], ['Temporary works', 3], ['Site supervision', 2]],
+    stf_so: [['Steel design', 3], ['Foundations and geotechnics', 2], ['Retaining walls', 3], ['Tekla', 2]],
+    stf_jw: [['Steel design', 2], ['Bridge assessment', 2], ['Timber design', 2], ['Site supervision', 2]],
+    stf_lp: [['Drainage design', 3], ['SuDS', 3], ['Highways and S278', 1], ['AutoCAD', 2]],
+    stf_dn: [['Highways and S278', 1], ['Drainage design', 1], ['AutoCAD', 1]],
+    stf_cr: [['Concrete design', 1], ['Masonry', 1], ['Surveys and retrofit', 1], ['Revit', 1]],
+    stf_mh: [['Revit', 3], ['AutoCAD', 3], ['Tekla', 2]],
+  };
+  for (const st of staff) st.skills = (SKILLS[st.id] || []).map(([skill, level]) => ({ skill, level }));
+
+  // ── Fee estimates on open opportunities ───────────────────────────────────
+  const tmp = { staff, rateCards: [DEFAULT_RATE_CARD] };
+  const tpl = (id) => DEFAULT_FEE_TEMPLATES.find((t) => t.id === id);
+  const oppById = new Map(opportunities.map((o) => [o.id, o]));
+  const estimates = [];
+  const makeEstimate = (oppId, opts, template, tweak) => {
+    const o = oppById.get(oppId);
+    const est = {
+      id: `est_${oppId}`, name: o.title, clientId: o.clientId, opportunityId: o.id, projectId: null, sector: opts.sector || 'Residential',
+      method: 'top-down', constructionCost: 0, feePct: 0, fixedTotal: 0, rateCardId: 'rc_std', templateId: template?.id || null,
+      targetMargin: template?.targetMargin ?? 0.35, startDate: weekday(addDays(o.expectedDate, 14)), status: 'Draft', approvedBy: null,
+      createdBy: o.ownerId, updatedAt: ago(4), notes: '', stages: [], snapshots: [], ...opts,
+    };
+    if (template) est.stages = templateStages(tmp, est, template).map((x, i) => ({ ...x, id: `${est.id}_s${i + 1}` }));
+    tweak?.(est);
+    const c = costEstimate(tmp, est);
+    est.snapshots.push({ at: ago(6), by: o.ownerId, fee: Math.round(c.fee), cost: Math.round(c.cost), hours: c.hours, margin: c.margin, note: 'First draft' });
+    o.value = Math.round(c.fee);
+    o.estimateId = est.id;
+    estimates.push(est);
+  };
+  makeEstimate('opp_20', { constructionCost: 2400000, feePct: 3.5, status: 'Submitted' }, tpl('tpl_riba'));
+  makeEstimate('opp_22', { constructionCost: 1400000, feePct: 3, sector: 'Education', status: 'Approved', approvedBy: 'stf_ag' }, tpl('tpl_riba'));
+  makeEstimate('opp_25', { fixedTotal: 26000, status: 'Submitted' }, tpl('tpl_survey'));
+  makeEstimate('opp_21', { fixedTotal: 14000 }, tpl('tpl_drain'), (est) => {
+    // Detailed design needs more hours than the fee allows: below target margin.
+    for (const g of Object.keys(est.stages[1].hours)) est.stages[1].hours[g] = half(est.stages[1].hours[g] * 1.7);
+  });
+  makeEstimate('opp_23', {
+    method: 'bottom-up', sector: 'Commercial',
+    stages: [
+      { id: 'est_opp_23_s1', name: 'RIBA 3 Spatial coordination', feeType: 'Fixed', weeks: 8, pct: 0, feeOverride: null, hours: { Associate: 20, 'Senior Engineer': 60, Engineer: 80, 'CAD Technician': 40 } },
+      { id: 'est_opp_23_s2', name: 'RIBA 4 Steel frame design', feeType: 'Fixed', weeks: 16, pct: 0, feeOverride: null, hours: { Associate: 30, 'Senior Engineer': 110, Engineer: 150, 'Graduate Engineer': 60, 'CAD Technician': 100 } },
+      { id: 'est_opp_23_s3', name: 'RIBA 5 Construction stage support', feeType: 'T&M', weeks: 30, pct: 0, feeOverride: null, hours: { 'Senior Engineer': 50, Engineer: 40 } },
+    ],
+  });
+
+  // ── Tasks on live jobs ───────────────────────────────────────────────────
+  const ELEMENTS = ['foundations', 'steel frame', 'retaining walls', 'transfer slab', 'roof structure', 'drainage network', 'stair cores', 'ground floor slab'];
+  const TASKS = ['Calculations: %', 'GA drawings: % for comment', 'Check and approve % calcs', 'Site visit: %', 'Respond to architect queries on %', 'Coordinate % with M&E', 'Issue % for Building Control', 'Update drawing register'];
+  const tasks = [];
+  let tk = 0;
+  for (const p of projects.filter((x) => x.status === 'Live')) {
+    const active = p.stages.filter((st) => st.startDate <= today && (st.feeType === 'T&M' || st.percentComplete < 100));
+    for (const st of active) {
+      const n = ri(3, 5);
+      for (let i = 0; i < n; i++) {
+        const start = weekday(addDays(today, ri(-35, 20)));
+        const due = weekday(addDays(start, ri(3, 21)));
+        const status = due < today ? (rnd() < 0.8 ? 'Completed' : 'In progress') : start <= today ? (rnd() < 0.6 ? 'In progress' : 'Not started') : 'Not started';
+        const who = [pick(p.team)];
+        if (rnd() < 0.3) who.push(pick(p.team));
+        tasks.push({
+          id: `tk${++tk}`, projectId: p.id, stageId: st.id, title: pick(TASKS).replace('%', pick(ELEMENTS)), assignees: [...new Set(who)],
+          status, start, due, hours: ri(2, 16), notes: '', createdAt: addDays(start, -3),
+        });
+      }
+    }
+  }
+
+  // ── CRM activities and follow-ups ────────────────────────────────────────
+  const activities = [];
+  let ac = 0;
+  const SUBJECTS = {
+    Call: ['Catch-up on programme', 'Discussed fee scope', 'Chased decision on proposal', 'Intro call with new PM'],
+    Meeting: ['Design team meeting', 'Pitch meeting', 'Site walkround with client', 'Quarterly account review'],
+    Email: ['Sent fee proposal', 'Sent revised scope', 'Shared case studies', 'Sent CVs for bid'],
+    Note: ['Client restructuring their development team', 'Competitor quoting 10% lower', 'Planning expected in spring'],
+  };
+  for (const o of opportunities.filter((x) => C_OPEN.includes(x.stage))) {
+    const n = ri(1, 3);
+    for (let i = 0; i < n; i++) {
+      const type = pick(['Call', 'Meeting', 'Email', 'Note']);
+      activities.push({ id: `ac${++ac}`, type, subject: pick(SUBJECTS[type]), date: weekday(ago(ri(3, 60))), dueDate: null, done: true, clientId: o.clientId, contactId: clientOf.get(o.clientId).contacts[0]?.id || null, opportunityId: o.id, ownerId: o.ownerId, notes: '' });
+    }
+    const due = weekday(addDays(today, ri(-10, 21)));
+    activities.push({ id: `ac${++ac}`, type: 'Follow-up', subject: `Follow up: ${o.title}`, date: ago(ri(5, 20)), dueDate: due, done: false, clientId: o.clientId, contactId: clientOf.get(o.clientId).contacts[0]?.id || null, opportunityId: o.id, ownerId: o.ownerId, notes: '' });
+  }
+  for (const c of clients) {
+    if (rnd() < 0.5) continue;
+    activities.push({ id: `ac${++ac}`, type: 'Meeting', subject: 'Account review', date: weekday(ago(ri(10, 90))), dueDate: null, done: true, clientId: c.id, contactId: c.contacts[0]?.id || null, opportunityId: null, ownerId: pick(['stf_ag', 'stf_hm', 'stf_rk']), notes: '' });
+  }
+
+  // ── Purchase orders for subconsultants and site work ─────────────────────
+  const PO = (n, projectId, supplier, description, amount, status, daysAgo, rechargeable = true) => ({
+    id: `po_${n}`, number: `PO-${String(n).padStart(4, '0')}`, projectId, supplier, description, amount, status, date: weekday(ago(daysAgo)),
+    rechargeable, raisedBy: projectById.get(projectId).managerId, approvedBy: amount > 1000 && status !== 'Draft' ? projectById.get(projectId).ownerId : null, supplierInvoice: ['Invoiced', 'Paid'].includes(status) ? `SI-${ri(1000, 9999)}` : '',
+  });
+  const purchaseOrders = [
+    PO(1, 'prj_g28781', 'Severnside Surveys Ltd', 'Topographical survey', 2850, 'Paid', 300, false),
+    PO(2, 'prj_g28781', 'GeoCore Site Investigations', 'Ground investigation and report', 8400, 'Paid', 280, false),
+    PO(3, 'prj_g28785', 'Clearflow Drainage Services', 'CCTV survey of existing sewers', 1650, 'Invoiced', 120),
+    PO(4, 'prj_g28794', 'Northern Load Testing', 'Pile load tests', 4200, 'Raised', 25),
+    PO(5, 'prj_g28799', 'Access Rope Inspections', 'Rope access for principal inspection', 3100, 'Paid', 140, false),
+    PO(6, 'prj_g28800', 'GeoCore Site Investigations', 'Basement ground investigation', 9600, 'Invoiced', 110),
+    PO(7, 'prj_g28803', 'Severnside Surveys Ltd', 'Topographical survey, phase 3', 2300, 'Approved', 12),
+    PO(8, 'prj_g28792', 'Thermal Imaging Co', 'Thermographic surveys, 40 homes', 3800, 'Draft', 3),
+    PO(9, 'prj_g28805', 'Roofline Access', 'Roof access equipment hire', 640, 'Raised', 18, false),
+  ];
+
+  const savedReports = [
+    { id: 'rpt_hours_person', name: 'Hours by person, last 3 months', dataset: 'time', columns: ['hours', 'value'], groupBy: 'person', filters: [{ field: 'date', op: 'after', value: ago(91) }], sort: { key: 'hours', dir: -1 } },
+    { id: 'rpt_fee_sector', name: 'Fees and WIP by sector', dataset: 'projects', columns: ['fee', 'invoiced', 'wip'], groupBy: 'sector', filters: [{ field: 'status', op: 'is', value: 'Live' }], sort: { key: 'fee', dir: -1 } },
+  ];
+
   const state = emptyState(today);
-  state.settings = { ...state.settings, currentUserId: 'stf_ag', nextJobNo: 28806, nextInvoiceNo: invNo, demo: true };
+  state.settings = {
+    ...state.settings, currentUserId: 'stf_ag', nextJobNo: 28806, nextInvoiceNo: invNo, nextPoNo: purchaseOrders.length + 1, demo: true,
+    targets: { won: 1200000, invoiced: 1150000 },
+  };
   return {
     ...state,
     offices, staff, clients, opportunities,
     projects: [internalProject(), ...projects],
     timesheets, timesheetWeeks, allocations, invoices, expenses, leave,
+    estimates, tasks, activities, purchaseOrders, savedReports,
   };
 }
+
+const C_OPEN = ['Lead', 'Qualified', 'Proposal'];

@@ -4,13 +4,15 @@
 // Definitions used everywhere in the app:
 //   Time value  = hours × the person's charge rate
 //   Cost        = hours × the person's cost rate, plus approved project expenses
+//                 and supplier invoices received against purchase orders
 //   Earned      = fixed-fee stage: fee × % complete
 //                 time-and-materials stage: time value
-//                 plus approved chargeable expenses on the project
+//                 plus approved chargeable expenses and rechargeable supplier
+//                 costs (disbursements) on the project
 //   Invoiced    = net value of invoices that are not drafts
 //   WIP         = earned − invoiced (negative means billed in advance)
 
-import { sum, addMonths, monthKey, monthStart, monthEnd, workingDays, addDays, daysBetween } from './util.js';
+import { sum, addMonths, monthKey, workingDays, addDays, daysBetween } from './util.js';
 
 export const OPEN_STAGES = ['Lead', 'Qualified', 'Proposal'];
 export const OPP_STAGES = [...OPEN_STAGES, 'Won', 'Lost'];
@@ -50,7 +52,18 @@ export function makeCtx(state) {
     if (x.chargeable) r.chargeable += x.amount;
     expenses.set(x.projectId, r);
   }
-  return { staff, projects, time, invoiced, expenses };
+  // Supplier costs count once the supplier has invoiced; approved or raised
+  // orders are committed spend, shown separately.
+  const purchases = new Map();
+  for (const po of state.purchaseOrders || []) {
+    const r = purchases.get(po.projectId) || { actual: 0, committed: 0, rechargeable: 0 };
+    if (['Invoiced', 'Paid'].includes(po.status)) {
+      r.actual += po.amount;
+      if (po.rechargeable) r.rechargeable += po.amount;
+    } else if (['Approved', 'Raised'].includes(po.status)) r.committed += po.amount;
+    purchases.set(po.projectId, r);
+  }
+  return { staff, projects, time, invoiced, expenses, purchases };
 }
 
 export function stageFinancials(project, stage, ctx) {
@@ -71,15 +84,16 @@ export function stageFinancials(project, stage, ctx) {
 export function projectFinancials(project, ctx) {
   const stages = project.stages.map((st) => ({ stage: st, ...stageFinancials(project, st, ctx) }));
   const exp = ctx.expenses.get(project.id) || { total: 0, chargeable: 0 };
+  const po = ctx.purchases?.get(project.id) || { actual: 0, committed: 0, rechargeable: 0 };
   const expInvoiced = ctx.invoiced.get(key(project.id, 'expenses')) || 0;
   const fee = sum(project.stages, (s) => s.fee);
   const fixedFee = sum(project.stages.filter((s) => s.feeType !== 'T&M'), (s) => s.fee);
   const fixedEarned = sum(stages.filter((s) => s.stage.feeType !== 'T&M'), (s) => s.earned);
   const budgetHours = sum(project.stages, (s) => s.budgetHours);
   const hours = sum(stages, (s) => s.hours);
-  const earned = sum(stages, (s) => s.earned) + exp.chargeable;
+  const earned = sum(stages, (s) => s.earned) + exp.chargeable + po.rechargeable;
   const invoiced = sum(stages, (s) => s.invoiced) + expInvoiced;
-  const cost = sum(stages, (s) => s.cost) + exp.total;
+  const cost = sum(stages, (s) => s.cost) + exp.total + po.actual;
   return {
     stages,
     fee,
@@ -96,7 +110,8 @@ export function projectFinancials(project, ctx) {
     percentComplete: fixedFee > 0 ? fixedEarned / fixedFee : null,
     hoursUsed: budgetHours > 0 ? hours / budgetHours : null,
     expenses: exp,
-    expensesUninvoiced: exp.chargeable - expInvoiced,
+    supplier: po,
+    expensesUninvoiced: exp.chargeable + po.rechargeable - expInvoiced,
     feeRemaining: fee - invoiced + expInvoiced,
   };
 }
@@ -271,5 +286,3 @@ export function leaveBalance(state, person, range) {
   const allowance = person.leaveAllowance ?? 25;
   return { allowance, approved, requested, remaining: allowance - approved - requested };
 }
-
-export { monthStart, monthEnd };

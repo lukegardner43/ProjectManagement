@@ -3,6 +3,7 @@ import { html, money, fmtDate, todayISO, fyRange, sum, uid } from '../util.js';
 import * as C from '../calc.js';
 import { pageHead, table, pill, tile, formModal, toast, confirmDialog, empty } from '../ui.js';
 import { opportunityForm } from './pipeline.js';
+import { activityTable, bindActivities, activityForm } from './activities.js';
 
 export function list(root) {
   const s = getState();
@@ -53,7 +54,7 @@ export function detail(root, { params: [id] }) {
 
   root.innerHTML = String(html`
     <div class="crumbs"><a href="#/clients">Clients</a> /</div>
-    ${pageHead(c.name, { sub: [c.sector, c.address].filter(Boolean).join(' · '), actions: html`<button type="button" class="btn" id="edit-client">Edit</button><button type="button" class="btn secondary" id="new-opp">New opportunity</button>` })}
+    ${pageHead(c.name, { sub: [c.sector, c.address].filter(Boolean).join(' · '), actions: html`<button type="button" class="btn" id="edit-client">Edit</button><button type="button" class="btn" id="log-act">Log activity</button><button type="button" class="btn secondary" id="new-opp">New opportunity</button>` })}
     <section class="tiles">
       ${tile({ label: 'Fees on all jobs', value: money(sum([...fins.values()], (f) => f.fee)), sub: `${projects.length} projects` })}
       ${tile({ label: 'Invoiced to date', value: money(sum(invoices.filter((i) => i.status !== 'Draft'), C.invoiceNet)), sub: 'net' })}
@@ -93,15 +94,18 @@ export function detail(root, { params: [id] }) {
           ],
         })}</div></section>
       </div>
-      <section class="card"><div class="card-head"><h2>Contacts</h2><button type="button" class="btn small" id="add-contact">Add contact</button></div>
+      <div class="stack"><section class="card"><div class="card-head"><h2>Contacts</h2><button type="button" class="btn small" id="add-contact">Add contact</button></div>
         <div class="card-body">${c.contacts.length ? c.contacts.map((x) => html`<div class="kv"><span><strong>${x.name}</strong><span class="cell-sub">${x.role}</span>${x.email ? html`<a href="mailto:${x.email}">${x.email}</a>` : ''}${x.phone ? html`<span class="cell-sub">${x.phone}</span>` : ''}</span><button type="button" class="btn small link" data-contact="${x.id}">Edit</button></div>`) : html`<p class="muted">No contacts yet.</p>`}
         ${c.notes ? html`<h3 style="margin-top:14px">Notes</h3><p>${c.notes}</p>` : ''}</div>
       </section>
+      <section class="card"><div class="card-head"><h2>Activity</h2></div><div class="card-body">${activityTable(s.activities.filter((a) => a.clientId === c.id), { id: 'client-acts' })}</div></section></div>
     </div>`);
 
   root.querySelector('#edit-client').addEventListener('click', () => clientForm(c));
   root.querySelector('#new-opp').addEventListener('click', () => opportunityForm(null, { clientId: c.id }));
   root.querySelector('#add-contact').addEventListener('click', () => contactForm(c));
+  root.querySelector('#log-act').addEventListener('click', () => activityForm(null, { clientId: c.id }));
+  bindActivities(root);
   root.querySelectorAll('[data-contact]').forEach((b) => b.addEventListener('click', () => contactForm(c, c.contacts.find((x) => x.id === b.dataset.contact))));
 }
 

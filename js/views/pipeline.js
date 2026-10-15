@@ -2,6 +2,8 @@ import { getState, update, find, clientName, staffName, officeName, activeStaff,
 import { html, money, compactMoney, fmtDate, todayISO, fyRange, sum, uid, addDays } from '../util.js';
 import * as C from '../calc.js';
 import { pageHead, table, pill, avatar, options, formModal, toast, confirmDialog } from '../ui.js';
+import { estimateToProject } from '../estimate.js';
+import { newEstimateForm } from './estimates.js';
 
 const DEFAULT_PROB = { Lead: 10, Qualified: 30, Proposal: 50, Won: 100, Lost: 0 };
 
@@ -34,6 +36,7 @@ export function render(root, { query }) {
       ${avatar(staffName(o.ownerId))}
     </div>
     ${o.projectId ? html`<div class="opp-foot"><a href="#/projects/${o.projectId}">${find('projects', o.projectId)?.jobNo || 'Project'}</a></div>` : ''}
+    ${o.estimateId && !o.projectId ? html`<div class="opp-foot"><a href="#/estimates/${o.estimateId}">Fee estimate</a>${pill(find('estimates', o.estimateId)?.status || 'Draft')}</div>` : ''}
     <div class="opp-foot"><label class="sr-only" for="mv-${o.id}">Move ${o.title} to</label>
       <select id="mv-${o.id}" class="opp-move" data-move="${o.id}">${options(C.OPP_STAGES, o.stage)}</select></div>
   </article>`;
@@ -163,13 +166,19 @@ function winForm(o) {
       update((st) => {
         Object.assign(o, { stage: 'Won', probability: 100, wonDate: v.wonDate, lostDate: null });
         const stage = { id: uid('stg'), name: o.title, feeType: 'Fixed', fee: o.value, budgetHours: Math.round(o.value / 85), percentComplete: 0 };
+        // With a fee estimate, its stages, hours by grade, dates and planned billing carry across.
+        const est = o.estimateId && st.estimates.find((x) => x.id === o.estimateId);
+        const fromEst = est ? estimateToProject(st, { ...est, startDate: v.wonDate > est.startDate ? v.wonDate : est.startDate }) : null;
+        if (est) est.status = 'Approved';
         if (v.create === 'project') {
           const p = {
-            id: uid('prj'), jobNo: v.jobNo, name: o.title, clientId: o.clientId, officeId: o.officeId, sector: '', status: 'Live',
+            id: uid('prj'), jobNo: v.jobNo, name: o.title, clientId: o.clientId, officeId: o.officeId, status: 'Live',
             managerId: v.managerId, ownerId: o.ownerId, team: [...new Set([v.managerId, o.ownerId])], startDate: v.wonDate, endDate: null,
             address: find('clients', o.clientId)?.address || '', purchaseOrder: '', description: o.notes || '', internal: false,
-            stages: [{ ...stage, name: 'Fee proposal' }], invoiceSchedule: [],
+            stages: fromEst ? fromEst.stages : [{ ...stage, name: 'Fee proposal' }], invoiceSchedule: fromEst ? fromEst.schedule : [],
+            sector: est?.sector || '', estimateId: est?.id || null,
           };
+          if (est) est.projectId = p.id;
           st.projects.push(p);
           o.projectId = p.id;
           const n = Number(v.jobNo.replace(/\D/g, ''));
@@ -177,7 +186,7 @@ function winForm(o) {
           goTo = p.id;
         } else if (v.create === 'stage') {
           const p = st.projects.find((x) => x.id === v.projectId);
-          p.stages.push(stage);
+          if (fromEst) { p.stages.push(...fromEst.stages); p.invoiceSchedule.push(...fromEst.schedule); est.projectId = p.id; } else p.stages.push(stage);
           o.projectId = p.id;
           goTo = p.id;
         }
@@ -202,7 +211,7 @@ export function opportunityForm(o = null, preset = {}) {
       { name: 'title', label: 'Title', value: v.title, required: true, full: true },
       { name: 'clientId', label: 'Client', type: 'select', value: v.clientId, options: s.clients.map((c) => ({ value: c.id, label: c.name })), placeholder: 'Choose…' },
       { name: 'newClient', label: 'Or a new client', placeholder: 'Client name', hint: 'Adds the client if it isn\'t in the list.' },
-      { name: 'value', label: 'Fee value (£)', type: 'number', min: 0, step: 50, value: v.value, required: true },
+      { name: 'value', label: 'Fee value (£)', type: 'number', min: 0, step: 50, value: v.value, required: true, hint: o?.estimateId ? 'Kept in step with the fee estimate.' : '' },
       { name: 'probability', label: 'Probability (%)', type: 'number', min: 0, max: 100, step: 5, value: v.probability, required: true },
       { name: 'stage', label: 'Stage', type: 'select', options: C.OPEN_STAGES.concat(o && !C.OPEN_STAGES.includes(o.stage) ? [o.stage] : []), value: v.stage, hint: o ? '' : 'Use the board to mark it won or lost.' },
       { name: 'expectedDate', label: 'Expected decision', type: 'date', value: v.expectedDate },
@@ -212,7 +221,10 @@ export function opportunityForm(o = null, preset = {}) {
       { name: 'officeId', label: 'Office', type: 'select', value: v.officeId, options: s.offices.map((x) => ({ value: x.id, label: x.name })) },
       { name: 'notes', label: 'Notes', type: 'textarea', value: v.notes, full: true },
     ],
-    extraActions: o ? [{ label: 'Delete', kind: 'danger', onClick: () => { remove(o); } }] : [],
+    extraActions: o ? [
+      { label: 'Delete', kind: 'danger', onClick: () => { remove(o); } },
+      { label: o.estimateId ? 'Open fee estimate' : 'Create fee estimate', onClick: () => { if (o.estimateId) location.hash = `#/estimates/${o.estimateId}`; else setTimeout(() => newEstimateForm({ opportunityId: o.id }), 0); } },
+    ] : [],
     onSubmit: (f) => {
       if (!f.clientId && !f.newClient) return 'Choose a client or type a new one.';
       update((st) => {

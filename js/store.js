@@ -2,9 +2,10 @@
 // Views read with getState() and change things only through update(), which
 // saves and then re-renders whatever is on screen.
 
-import { seed, emptyState, SCHEMA_VERSION } from './seed.js';
+import { seed, emptyState, v2Defaults, SCHEMA_VERSION } from './seed.js';
 
 const KEY = 'perega-projects/v1';
+// Present since version 1; later collections are added by upgrade().
 const REQUIRED = ['settings', 'offices', 'staff', 'clients', 'opportunities', 'projects', 'timesheets',
   'timesheetWeeks', 'allocations', 'invoices', 'expenses', 'leave'];
 
@@ -16,7 +17,9 @@ export function load() {
   try {
     const saved = localStorage.getItem(KEY);
     if (saved) {
-      state = validate(JSON.parse(saved));
+      const data = JSON.parse(saved);
+      state = validate(data);
+      if (state.version !== data.version) persist(); // keep storage in step after an upgrade
       return;
     }
   } catch (e) {
@@ -65,7 +68,23 @@ export function validate(data) {
   }
   if ((data.version || 1) > SCHEMA_VERSION) throw new Error('This file was made by a newer version of the app.');
   if (!data.projects.some((p) => p.internal)) data.projects.unshift(emptyState().projects[0]);
-  return { ...data, version: SCHEMA_VERSION };
+  return upgrade(data);
+}
+
+// Version 1 saves predate fee estimates, tasks, CRM activities, purchase
+// orders, rate cards and custom reports: add them empty, keep everything else.
+function upgrade(data) {
+  // Untouched demo data from version 1 is simply regenerated with the new features.
+  if (data.settings?.demo && (data.version || 1) < 2) return seed();
+  const d = v2Defaults();
+  const out = { ...data };
+  for (const k of ['rateCards', 'feeTemplates', 'estimates', 'tasks', 'activities', 'purchaseOrders', 'savedReports']) {
+    if (!Array.isArray(out[k])) out[k] = d[k];
+  }
+  out.settings = { ...d.settingsDefaults, ...out.settings, targets: { ...d.settingsDefaults.targets, ...out.settings.targets } };
+  out.staff = out.staff.map((p) => (Array.isArray(p.skills) ? p : { ...p, skills: [] }));
+  out.version = SCHEMA_VERSION;
+  return out;
 }
 
 export function replaceState(next) {
@@ -107,5 +126,7 @@ export function pendingApprovals() {
   return state.timesheetWeeks.filter((w) => w.status === 'Submitted').length
     + state.expenses.filter((x) => x.status === 'Submitted').length
     + state.leave.filter((l) => l.status === 'Requested').length
-    + state.invoices.filter((i) => i.status === 'Draft').length;
+    + state.invoices.filter((i) => i.status === 'Draft').length
+    + state.estimates.filter((e) => e.status === 'Submitted').length
+    + state.purchaseOrders.filter((p) => p.status === 'Draft' && p.amount > (state.settings.poApprovalLimit ?? 0)).length;
 }

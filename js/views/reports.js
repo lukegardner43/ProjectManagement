@@ -2,7 +2,8 @@ import { getState, find, clientName, staffName, officeName, activeStaff, clientP
 import { html, money, money2, hrs, pct, fmtDate, todayISO, fyRange, addDays, weekStart, monthLabel, monthKey, sum, round2, toCSV, daysBetween, groupBy, addMonths, monthStart, monthEnd } from '../util.js';
 import * as C from '../calc.js';
 import { pageHead, table, pill, tile, options, download, meter, empty } from '../ui.js';
-import { barList } from '../charts.js';
+import { barList, columnChart, SERIES } from '../charts.js';
+import { staffingForecast, revenueByMonth } from '../forecast.js';
 
 const REPORTS = {
   'sales-won': { title: 'Sales won', text: 'Fees won in a financial year, by owner and office.', build: salesWon },
@@ -13,12 +14,18 @@ const REPORTS = {
   budget: { title: 'Budget vs actual hours', text: 'Hours used against budget for each stage of live jobs.', build: budget },
   'aged-debt': { title: 'Aged debt', text: 'Unpaid invoices by how long they are overdue.', build: agedDebt },
   'time-expense': { title: 'Project time and expense', text: 'Every hour and expense booked to one project.', build: timeExpense },
+  staffing: { title: 'Staffing forecast', text: 'Hours needed by grade over the next year from live work and the pipeline, against the hours available.', build: staffing },
+  revenue: { title: 'Revenue calendar', text: 'Revenue recognised each month by project, alongside what was invoiced.', build: revenue },
 };
 
 export function index(root) {
+  const saved = getState().savedReports || [];
   root.innerHTML = String(html`
-    ${pageHead('Reports', { sub: 'Each report can be filtered and exported to CSV for Excel.' })}
-    <div class="report-cards">${Object.entries(REPORTS).map(([k, r]) => html`<a class="card report-card" href="#/reports/${k}"><h3>${r.title}</h3><p>${r.text}</p></a>`)}</div>`);
+    ${pageHead('Reports', { sub: 'Each report can be filtered and exported to CSV for Excel.', actions: html`<a class="btn primary" href="#/reports/custom/new">Build a report</a>` })}
+    <div class="report-cards">${Object.entries(REPORTS).map(([k, r]) => html`<a class="card report-card" href="#/reports/${k}"><h3>${r.title}</h3><p>${r.text}</p></a>`)}</div>
+    <h2 style="margin:24px 0 10px">Custom reports</h2>
+    ${saved.length ? html`<div class="report-cards">${saved.map((r) => html`<a class="card report-card" href="#/reports/custom/${r.id}"><h3>${r.name}</h3><p>${r.groupBy ? `Grouped by ${r.groupBy}` : 'Row by row'} · ${r.dataset}</p></a>`)}</div>`
+    : html`<p class="muted">None yet. Build one from projects, invoices, time, opportunities or expenses, and save it here for everyone.</p>`}`);
 }
 
 export function report(root, { params: [key], query }) {
@@ -315,5 +322,74 @@ function timeExpense(s, query) {
     csv: [['Type', 'Date', 'Person', 'Stage / category', 'Hours', 'Rate', 'Value'],
       ...entries.map((e) => ['Time', e.date, staffName(e.staffId), stageName(e.projectId, e.stageId), e.hours, e.rate, round2(e.value)]),
       ...exps.map((x) => ['Expense', x.date, staffName(x.staffId), x.category, '', '', x.amount])],
+  };
+}
+
+// ── Staffing forecast ───────────────────────────────────────────────────────
+
+function staffing(s, query, today) {
+  const months = Array.from({ length: 12 }, (_, i) => addMonths(monthKey(today), i));
+  const out = staffingForecast(s, months, today);
+  const cls = (d) => {
+    if (d.capacity <= 0) return d.demand > 0 ? 'over-cap' : 'h0';
+    const r = d.demand / d.capacity;
+    return r > 1.0001 ? 'over-cap' : r === 0 ? 'h0' : r <= 0.25 ? 'h1' : r <= 0.5 ? 'h2' : r <= 0.75 ? 'h3' : r <= 0.9 ? 'h4' : 'h5';
+  };
+  const tip = (g, d) => String(html`<strong>${g}, ${monthLabel(d.month, true)}</strong><div class="tip-row">Live work<b>${hrs(d.live)} h</b></div><div class="tip-row">Weighted pipeline<b>${hrs(d.pipeline)} h</b></div><div class="tip-row">Available<b>${hrs(d.capacity)} h</b></div><div class="tip-row tip-total">${d.gap < 0 ? '! Short by' : 'Spare'}<b>${hrs(Math.abs(d.gap))} h</b></div>`);
+  const shortfalls = out.rows.flatMap((r) => r.months.filter((d) => d.gap < -20).map((d) => ({ grade: r.grade, ...d })));
+  const cell = (g, d) => html`<td class="cell"><button type="button" class="${cls(d)}" data-tip="${tip(g, d)}" aria-label="${g}, ${monthLabel(d.month, true)}: ${Math.round(d.demand)} of ${Math.round(d.capacity)} hours">${d.gap < 0 ? html`<span aria-hidden="true">! </span>` : ''}${Math.round(d.demand)}</button></td>`;
+  return {
+    sub: `Next 12 months. Available hours are contracted hours less approved leave, at a ${pct(out.utilisationTarget)} utilisation target.`,
+    body: html`
+      <section class="card"><div class="card-head"><h2>Demand against capacity, all grades</h2></div><div class="card-body">${columnChart({
+        series: [{ key: 'live', label: 'Live work', color: SERIES[0] }, { key: 'pipeline', label: 'Weighted pipeline', color: SERIES[2] }, { key: 'spare', label: 'Spare capacity', color: 'var(--heat-2)' }],
+        rows: out.total.map((d) => ({ label: monthLabel(d.month), tipTitle: monthLabel(d.month, true), values: { live: d.live, pipeline: d.pipeline, spare: Math.max(0, d.gap) } })),
+        format: (v) => `${Math.round(v)}`, tipFormat: (v) => `${hrs(v)} h`, height: 300, width: 1100, caption: 'Staffing demand and capacity by month',
+      })}</div></section>
+      <section class="card"><div class="card-head"><h2>By grade</h2><div class="heat-key">Planned hours as a share of available:
+        <span class="k h1"></span><span class="k h3"></span><span class="k h5"></span>100% <span class="k over-cap"></span>! short</div></div>
+        <div class="card-body"><div class="table-wrap"><table class="heat">
+          <thead><tr><th style="text-align:left">Grade</th>${months.map((m) => html`<th>${monthLabel(m)}</th>`)}</tr></thead>
+          <tbody>${out.rows.map((r) => html`<tr><td class="who"><strong>${r.grade}</strong></td>${r.months.map((d) => cell(r.grade, d))}</tr>`)}</tbody>
+          <tfoot><tr class="sub"><td class="who"><strong>All grades</strong></td>${out.total.map((d) => html`<td class="subcell ${d.gap < 0 ? 'neg' : ''}">${Math.round(d.demand)}/${Math.round(d.capacity)}</td>`)}</tr></tfoot>
+        </table></div></div></section>
+      <section class="card"><div class="card-head"><h2>Where you'll be short</h2></div><div class="card-body">
+        ${shortfalls.length ? html`<ul class="attention">${shortfalls.slice(0, 12).map((x) => html`<li><span><strong>${x.grade}</strong>, ${monthLabel(x.month, true)}</span><span class="flag flag-critical">! ${Math.round(-x.gap)} h short (${Math.round(x.demand)} needed, ${Math.round(x.capacity)} available)</span></li>`)}</ul>
+          <p class="muted" style="margin-top:8px">Bring work forward or back, subcontract, or plan a hire before the gap opens.</p>`
+          : html`<p class="muted">No grade is short by more than 20 hours in any month.</p>`}
+      </div></section>`,
+    csv: [['Grade', 'Month', 'Live work hours', 'Weighted pipeline hours', 'Available hours', 'Spare (short) hours'],
+      ...out.rows.flatMap((r) => r.months.map((d) => [r.grade, d.month, Math.round(d.live), Math.round(d.pipeline), Math.round(d.capacity), Math.round(d.gap)]))],
+  };
+}
+
+// ── Revenue calendar ────────────────────────────────────────────────────────
+
+function revenue(s, query, today) {
+  const { range, ctl } = fyChoice(s, query, today);
+  const months = range.months.filter((m) => m <= monthKey(today));
+  const rev = revenueByMonth(s, months);
+  const rows = [...rev].map(([pid, by]) => ({ p: find('projects', pid), by, total: sum([...by.values()]) })).filter((r) => r.p && r.total > 0);
+  const monthTotal = (m) => sum(rows, (r) => r.by.get(m) || 0);
+  const invoiced = (m) => sum(s.invoices.filter((i) => i.status !== 'Draft' && monthKey(i.date) === m), C.invoiceNet);
+  return {
+    sub: `${range.label} to date. Time-and-materials stages recognise time booked; fixed-fee stages recognise earned value in step with the hours booked each month.`,
+    filters: ctl,
+    body: html`<section class="card"><div class="card-body">${columnChart({
+        series: [{ key: 'rev', label: 'Revenue recognised', color: SERIES[0] }, { key: 'inv', label: 'Invoiced', color: SERIES[1] }],
+        rows: months.map((m) => ({ label: monthLabel(m), tipTitle: monthLabel(m, true), values: { rev: monthTotal(m), inv: invoiced(m) } })),
+        height: 280, width: 1100, caption: 'Revenue recognised and invoiced by month', grouped: true,
+      })}</div></section>
+      <section class="card"><div class="card-body">${table({
+        id: 'rep-revenue', rows, compact: true, defaultSort: { key: 'total', dir: -1 },
+        columns: [
+          { key: 'job', label: 'Job', value: (r) => r.p.jobNo, render: (r) => html`<a href="#/projects/${r.p.id}"><span class="job">${r.p.jobNo}</span></a> ${r.p.name}` },
+          ...months.map((m, i) => ({ key: `m${i}`, label: monthLabel(m), align: 'num', value: (r) => r.by.get(m) || 0, render: (r) => (r.by.get(m) ? money(r.by.get(m)) : '') })),
+          { key: 'total', label: 'Total', align: 'num', render: (r) => html`<strong>${money(r.total)}</strong>` },
+        ],
+        footer: { job: html`Recognised<br><span class="muted" style="font-weight:400">Invoiced</span>`, ...Object.fromEntries(months.map((m, i) => [`m${i}`, html`${money(monthTotal(m))}<br><span class="muted" style="font-weight:400">${money(invoiced(m))}</span>`])), total: html`${money(sum(rows, (r) => r.total))}<br><span class="muted" style="font-weight:400">${money(sum(months, invoiced))}</span>` },
+        empty: 'No revenue in this period.',
+      })}</div></section>`,
+    csv: [['Job', 'Project', ...months.map((m) => monthLabel(m, true)), 'Total'], ...rows.map((r) => [r.p.jobNo, r.p.name, ...months.map((m) => round2(r.by.get(m) || 0)), round2(r.total)])],
   };
 }

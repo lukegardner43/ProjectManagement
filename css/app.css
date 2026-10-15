@@ -403,12 +403,66 @@ svg.chart .hit:hover, svg.chart .hit:focus { fill: rgba(85, 69, 150, .07); outli
 .kv:last-child { border-bottom: none; }
 .kv b { font-variant-numeric: tabular-nums; }
 
+/* ── Fee estimate grid ──────────────────────────────────────────────────── */
+.est-grid td, .est-grid th { padding: 5px 6px; }
+.est-grid .input { height: 30px; padding: 0 6px; }
+.est-grid .select { height: 30px; }
+.est-grid input:disabled, .est-grid select:disabled { background: var(--surface-2); border-color: var(--line); color: var(--ink-2); }
+
+/* ── Programme (Gantt) ──────────────────────────────────────────────────── */
+.gantt { font-size: 12.5px; }
+.g-row { display: grid; grid-template-columns: 280px 1fr; border-bottom: 1px solid var(--line); }
+.g-head { border-bottom: 1px solid var(--line-2); }
+.g-label { padding: 6px 10px 6px 0; min-width: 0; overflow: hidden; }
+.g-label .btn.link { text-align: left; white-space: normal; }
+.g-task .g-label { padding-left: 18px; }
+.g-track { position: relative; min-height: 34px; }
+.g-head .g-track { min-height: 28px; }
+.g-month { position: absolute; top: 6px; font-size: 11px; color: var(--axis); padding-left: 4px; border-left: 1px solid var(--line-2); white-space: nowrap; overflow: hidden; }
+.g-bar { position: absolute; top: 9px; height: 16px; border-radius: 4px; min-width: 3px; overflow: hidden; cursor: default; }
+.g-bar:focus { outline: 2px solid var(--purple); outline-offset: 1px; }
+.g-done { background: var(--heat-4); }
+.g-active { background: var(--rubine-line); }
+.g-active .g-progress { background: var(--rubine); }
+.g-next { background: var(--heat-2); }
+.g-progress { display: block; height: 100%; background: var(--heat-5); }
+.g-done .g-progress { background: var(--heat-4); }
+.g-taskbar { top: 12px; height: 10px; background: var(--heat-3); }
+.g-taskbar.g-done { background: var(--heat-4); }
+.g-taskbar.g-late { background: var(--critical-tint); box-shadow: inset 0 0 0 2px var(--critical); }
+.g-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--golden); z-index: 1; pointer-events: none; }
+
+/* ── Skills ─────────────────────────────────────────────────────────────── */
+.chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 11.5px; background: var(--purple-tint); color: var(--purple); border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+table.matrix { border-collapse: separate; border-spacing: 2px; font-size: 12.5px; }
+table.matrix th { height: 150px; vertical-align: bottom; padding: 0 0 6px; font-weight: 700; color: var(--muted); font-size: 11.5px; }
+table.matrix th span { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+table.matrix th.who, table.matrix td.who { text-align: left; min-width: 170px; padding-right: 10px; writing-mode: horizontal-tb; }
+table.matrix td.lvl { width: 34px; height: 30px; text-align: center; border-radius: 3px; font-size: 10px; letter-spacing: -1px; }
+.lvl-0 { background: var(--surface-2); }
+.lvl-1 { background: var(--heat-1); color: var(--purple); }
+.lvl-2 { background: var(--heat-3); color: var(--ink); }
+.lvl-3 { background: var(--heat-5); color: #fff; }
+
+/* ── Dashboard prompts ──────────────────────────────────────────────────── */
+.insights { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 20px; }
+.insights a { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--line); }
+.insights a:hover span:last-child { color: var(--rubine); text-decoration: underline; }
+.insights .flag { padding: 1px 6px; flex-shrink: 0; }
+
+/* ── Report builder ─────────────────────────────────────────────────────── */
+.rb-filter { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 4px; margin-bottom: 6px; }
+.rb-filter select, .rb-filter input { min-width: 0; padding: 5px 6px; border: 1px solid var(--line-2); border-radius: 4px; background: #fff; font-size: 12.5px; }
+
 /* ── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
   .grid-3 { grid-template-columns: 1fr 1fr; }
   .grid-main { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
+  .insights { grid-template-columns: 1fr; }
+  .g-row { grid-template-columns: 180px 1fr; }
   .sidebar { position: fixed; left: 0; top: 0; z-index: 900; transform: translateX(-100%); transition: transform .2s; box-shadow: var(--shadow-lg); }
   body.nav-open .sidebar { transform: none; }
   body.nav-open .scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 800; }
